@@ -39,10 +39,10 @@ import org.apache.spark.sql.SparkSession;
 
 /**
  * 
- * Evaluation metrics
+ * Hyper parameters
  *
  */
-public class GBTRegressionStep04_part01 {
+public class GBTRegressionStep04_part02 {
 
   public static void main(String[] args) {
 
@@ -62,7 +62,7 @@ public class GBTRegressionStep04_part01 {
         .format("csv")
         .option("header", "true")
         .option("inferSchema", "true")
-        .load("dataset/gem_price.csv");// gem_price_ja.csv for Japanese
+        .load("dataset/gem_price_ja.csv");// gem_price_ja.csv for Japanese
 
     List<String> categoricalColNames = Arrays.asList("material", "shape", "brand", "shop");
 
@@ -87,7 +87,12 @@ public class GBTRegressionStep04_part01 {
     GBTRegressor gbtr = new GBTRegressor()
         .setLabelCol("price")
         .setFeaturesCol("features")
-        .setPredictionCol("prediction");
+        .setPredictionCol("prediction")
+        .setSeed(0)// (1)
+        .setMaxBins(32)// (2)
+        .setMaxIter(10)// (3)
+        .setMaxDepth(5)// (4)
+        .setStepSize(0.1);// (5)
 
     PipelineStage[] indexerStages = stringIndexers.toArray(new PipelineStage[0]);
 
@@ -108,34 +113,12 @@ public class GBTRegressionStep04_part01 {
 
     predictions.select("id", "material", "shape", "weight", "brand", "shop", "price", "prediction").show(10);
 
-    RegressionEvaluator rmseEval = new RegressionEvaluator()// (1)
-        .setLabelCol("price")// (2)
-        .setPredictionCol("prediction")// (3)
-        .setMetricName("rmse");// (4)
+    RegressionEvaluator rmseEval = new RegressionEvaluator()
+        .setLabelCol("price")
+        .setPredictionCol("prediction")
+        .setMetricName("rmse");
     double rmse = rmseEval.evaluate(predictions);
     System.out.println("RMSE: root mean squared error = " + rmse);
-
-    RegressionEvaluator mseEval = new RegressionEvaluator()
-        .setLabelCol("price")
-        .setPredictionCol("prediction")
-        .setMetricName("mse");
-    double mse = mseEval.evaluate(predictions);
-    System.out.println("MSE: mean squared error = " + mse);
-
-    RegressionEvaluator r2Eval = new RegressionEvaluator()
-        .setLabelCol("price")
-        .setPredictionCol("prediction")
-        .setMetricName("r2");
-    double r2 = r2Eval.evaluate(predictions);
-    System.out.println("R2: coefficient of determination = " + r2);
-
-    RegressionEvaluator maeEval = new RegressionEvaluator()
-        .setLabelCol("price")
-        .setPredictionCol("prediction")
-        .setMetricName("mae");
-
-    double mae = maeEval.evaluate(predictions);
-    System.out.println("MAE: mean absolute error = " + mae);
 
   }
 

@@ -32,17 +32,22 @@ import org.apache.spark.ml.PipelineStage;
 import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.StringIndexer;
 import org.apache.spark.ml.feature.VectorAssembler;
+import org.apache.spark.ml.param.ParamMap;
+import org.apache.spark.ml.regression.GBTRegressionModel;
 import org.apache.spark.ml.regression.GBTRegressor;
+import org.apache.spark.ml.tuning.CrossValidator;
+import org.apache.spark.ml.tuning.CrossValidatorModel;
+import org.apache.spark.ml.tuning.ParamGridBuilder;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
 /**
  * 
- * Evaluation metrics
+ * Grid search
  *
  */
-public class GBTRegressionStep04_part01 {
+public class GBTRegressionStep04_part03 {
 
   public static void main(String[] args) {
 
@@ -62,7 +67,7 @@ public class GBTRegressionStep04_part01 {
         .format("csv")
         .option("header", "true")
         .option("inferSchema", "true")
-        .load("dataset/gem_price.csv");// gem_price_ja.csv for Japanese
+        .load("dataset/gem_price_ja.csv");// gem_price_ja.csv for Japanese
 
     List<String> categoricalColNames = Arrays.asList("material", "shape", "brand", "shop");
 
@@ -87,7 +92,8 @@ public class GBTRegressionStep04_part01 {
     GBTRegressor gbtr = new GBTRegressor()
         .setLabelCol("price")
         .setFeaturesCol("features")
-        .setPredictionCol("prediction");
+        .setPredictionCol("prediction")
+        .setSeed(0);
 
     PipelineStage[] indexerStages = stringIndexers.toArray(new PipelineStage[0]);
 
@@ -95,47 +101,29 @@ public class GBTRegressionStep04_part01 {
 
     Pipeline pipeline = new Pipeline().setStages(pipelineStages);
 
-    long seed = 0;
-
-    Dataset<Row>[] splits = dataset.randomSplit(new double[] { 0.7, 0.3 }, seed);
-
-    Dataset<Row> trainingData = splits[0];
-    Dataset<Row> testData = splits[1];
-
-    PipelineModel pipelineModel = pipeline.fit(trainingData);
-
-    Dataset<Row> predictions = pipelineModel.transform(testData);
-
-    predictions.select("id", "material", "shape", "weight", "brand", "shop", "price", "prediction").show(10);
-
-    RegressionEvaluator rmseEval = new RegressionEvaluator()// (1)
-        .setLabelCol("price")// (2)
-        .setPredictionCol("prediction")// (3)
-        .setMetricName("rmse");// (4)
-    double rmse = rmseEval.evaluate(predictions);
-    System.out.println("RMSE: root mean squared error = " + rmse);
-
-    RegressionEvaluator mseEval = new RegressionEvaluator()
+    RegressionEvaluator rmseEval = new RegressionEvaluator()
         .setLabelCol("price")
         .setPredictionCol("prediction")
-        .setMetricName("mse");
-    double mse = mseEval.evaluate(predictions);
-    System.out.println("MSE: mean squared error = " + mse);
+        .setMetricName("rmse");
 
-    RegressionEvaluator r2Eval = new RegressionEvaluator()
-        .setLabelCol("price")
-        .setPredictionCol("prediction")
-        .setMetricName("r2");
-    double r2 = r2Eval.evaluate(predictions);
-    System.out.println("R2: coefficient of determination = " + r2);
+    ParamMap[] paramMaps = new ParamGridBuilder()// (1)
+        .addGrid(gbtr.maxIter(), new int[] { 5, 10 })
+        .addGrid(gbtr.maxDepth(), new int[] { 5, 10 })
+        .addGrid(gbtr.stepSize(), new double[] { 0.5, 0.1, 0.01 })
+        .build();
 
-    RegressionEvaluator maeEval = new RegressionEvaluator()
-        .setLabelCol("price")
-        .setPredictionCol("prediction")
-        .setMetricName("mae");
+    CrossValidator crossValidator = new CrossValidator()// (2)
+        .setEstimator(pipeline)
+        .setEvaluator(rmseEval)
+        .setEstimatorParamMaps(paramMaps)
+        .setParallelism(4)
+        .setNumFolds(3);
 
-    double mae = maeEval.evaluate(predictions);
-    System.out.println("MAE: mean absolute error = " + mae);
+    CrossValidatorModel crossValidatorModel = crossValidator.fit(dataset);
+    PipelineModel bestModel = (PipelineModel) crossValidatorModel.bestModel();
+    GBTRegressionModel gbtrModel = (GBTRegressionModel) bestModel.stages()[pipelineStages.length - 1];
+
+    System.out.println("bestModel=" + gbtrModel.extractParamMap());
 
   }
 
